@@ -1,0 +1,18 @@
+# backend
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.venv/
+venv/
+.env
+*.db
+*.db-journal
+
+# frontend
+frontend/node_modules/
+frontend/.next/
+
+# private business, product and technical docs (kept local only)
+docs/
+docs/

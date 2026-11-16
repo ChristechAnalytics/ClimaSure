@@ -1,0 +1,31 @@
+services:
+  # Python API: http://localhost:8000 (interactive docs at /docs)
+  api:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file: ./backend/.env
+    volumes:
+      - climasure-data:/data
+
+  # Next.js dashboard: http://localhost:3000 (proxies /api/* to the api service)
+  web:
+    build:
+      context: ./frontend
+      args:
+        CLIMASURE_API_URL: http://api:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+  # Daily settlement job. Sleeps 24h between runs; use a real scheduler in production.
+  daily:
+    build: ./backend
+    env_file: ./backend/.env
+    volumes:
+      - climasure-data:/data
+    command: sh -c "while true; do python -m scripts.run_daily; sleep 86400; done"
+
+volumes:
+  climasure-data:
