@@ -5,6 +5,41 @@ ClimaSure sells rainfall and heat data to insurers and microfinance banks, so th
 can pay farmers automatically when drought or flood hits. **The weather data
 settles the claim. There is no claims adjuster.**
 
+### ▶ [Try the live demo](https://climasure.vercel.app/)
+
+No sign-up. You land in the dashboard of a fictional microfinance bank with 12
+farm policies in Kano State, Nigeria. Click **Settle the season** to run the
+trigger engine on real weather data (Open-Meteo / ERA5) and see which farmers
+get paid and why. Then open a policy to check its evidence trail, or approve a
+payout. API docs: [climasure-api.onrender.com/docs](https://climasure-api.onrender.com/docs).
+
+> The API runs on a free tier and sleeps when idle, so the first visit can take
+> up to a minute while it wakes up.
+
+### Engineering highlights
+
+- **Verifiable settlements.** Every evaluation stores the contract terms, each
+  daily data point used and the engine version, sealed with a SHA-256 hash. A
+  `/verify` endpoint re-runs the engine on the stored data and checks the result
+  matches, so anyone can audit a payout.
+- **Pluggable data sources.** The engine reads weather only through one
+  `WeatherProvider` interface, so the source (synthetic, Open-Meteo, satellite
+  rainfall such as CHIRPS) can change without touching contract logic.
+- **Payout workflow that never pays twice.** Payouts move from pending to
+  approved to paid or rejected, with re-evaluation only ever raising the
+  difference from what was already raised.
+- **Multi-tenant API.** Per-client API keys stored as hashes, strict tenant
+  isolation, bulk upload of up to 5,000 policies with row-level errors, and
+  HMAC-signed webhooks.
+- **Safe public demo.** A demo mode seeds a shared account, resets it on a
+  schedule, caps its size and blocks webhook URLs, so strangers can't make the
+  server call arbitrary addresses.
+- **Tested and checked on every push.** 50 backend tests (pytest), plus lint,
+  type-check and production build for the frontend in GitHub Actions.
+
+**Stack:** Python, FastAPI, Pydantic, SQLite · Next.js 16, React 19, TypeScript,
+Tailwind CSS 4 · Docker · Render (API) and Vercel (dashboard).
+
 
 ```
 Farmer buys cover through an MFI / insurer
