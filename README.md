@@ -128,6 +128,19 @@ docker compose up --build
 This starts the API (port 8000), the dashboard (port 3000) and the daily
 settlement job.
 
+### Public demo mode
+
+Set `CLIMASURE_DEMO_MODE=true` in `backend/.env` to run a showcase deployment.
+The API seeds a fictional microfinance bank, "Kano Farmers MFB", with 12 policies
+for the latest season that has already closed. Anyone who opens the dashboard is
+signed in to it automatically. A banner lets visitors settle the season to see
+which triggers fired and which farmers get paid, then reset it to start again.
+
+For safety, the demo account can't set a webhook URL and is capped at 300
+policies. It resets on startup and every `CLIMASURE_DEMO_RESET_HOURS` (default
+24). Other client accounts on the same server aren't affected. Don't run the
+daily job on a demo deployment, or it will settle the season before visitors can.
+
 ## Documentation
 
 - [Backend](backend/README.md): API setup and code layout

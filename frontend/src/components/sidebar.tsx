@@ -45,9 +45,12 @@ export function Sidebar() {
             <span className="text-ink-3">{me.id}</span>
           </div>
         )}
-        <Button variant="ghost" size="sm" onClick={signOut}>
-          Sign out
-        </Button>
+        {/* The demo signs visitors straight back in, so signing out would do nothing. */}
+        {!me?.demo && (
+          <Button variant="ghost" size="sm" onClick={signOut}>
+            Sign out
+          </Button>
+        )}
       </div>
     </aside>
   );

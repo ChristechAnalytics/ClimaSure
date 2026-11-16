@@ -5,8 +5,11 @@ Interactive docs at /docs.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import sqlite3
 import statistics
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from typing import Literal, Optional
 
@@ -18,6 +21,7 @@ from climasure import __version__
 from climasure.config import Settings, get_settings
 from climasure.data.providers import WeatherProvider, get_provider
 from climasure.db import Store
+from climasure.demo import DEMO_MAX_CONTRACTS, demo_api_key, demo_info, is_demo_client, reset_demo
 from climasure.geo import cell_center, cell_id
 from climasure.triggers.contracts import Contract, ContractIn, TriggerSpec
 from climasure.triggers.engine import Evaluation, backtest, compute_index, payout_fraction, verify_evaluation
@@ -25,6 +29,7 @@ from climasure.triggers.service import run_all_active, run_evaluation
 from climasure.triggers.templates import TEMPLATES, build_triggers
 
 LAGOS_TZ = timezone(timedelta(hours=1))
+log = logging.getLogger("climasure")
 
 
 def default_as_of() -> date:
@@ -84,14 +89,36 @@ class PayoutAction(BaseModel):
 
 def create_app(settings: Optional[Settings] = None, provider: Optional[WeatherProvider] = None, store: Optional[Store] = None) -> FastAPI:
     settings = settings or get_settings()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        task = None
+        if settings.demo_mode and settings.demo_reset_hours > 0:
+
+            async def reset_periodically() -> None:
+                while True:
+                    await asyncio.sleep(settings.demo_reset_hours * 3600)
+                    try:
+                        app.state.demo = await asyncio.to_thread(reset_demo, app.state.store, settings)
+                    except Exception:  # keep the loop alive; the next reset may succeed
+                        log.exception("scheduled demo reset failed")
+
+            task = asyncio.create_task(reset_periodically())
+        yield
+        if task:
+            task.cancel()
+
     app = FastAPI(
         title="ClimaSure Weather Triggers API",
         version=__version__,
         description="Hyperlocal rainfall and heat indices for parametric insurance. Pay farmers from the data, with no claims adjuster.",
+        lifespan=lifespan,
     )
     app.state.settings = settings
     app.state.store = store or Store(settings.db_path)
     app.state.provider = provider or get_provider(settings.weather_provider)
+    # Public demo: start every process with a fresh, unsettled demo portfolio.
+    app.state.demo = reset_demo(app.state.store, settings) if settings.demo_mode else None
 
     def get_store(request: Request) -> Store:
         return request.app.state.store
@@ -121,7 +148,13 @@ def create_app(settings: Optional[Settings] = None, provider: Optional[WeatherPr
             raise HTTPException(422, "as_of cannot be in the future")
         return as_of
 
+    def require_demo() -> None:
+        if not settings.demo_mode:
+            raise HTTPException(404, "demo mode is not enabled on this server")
+
     def create_contract(store: Store, client: dict, body: ContractIn) -> Contract:
+        if is_demo_client(settings, client) and store.count_contracts(client["id"]) >= DEMO_MAX_CONTRACTS:
+            raise HTTPException(403, f"the public demo holds at most {DEMO_MAX_CONTRACTS} policies; reset the demo to start again")
         contract = Contract(
             **body.model_dump(),
             client_id=client["id"],
@@ -160,15 +193,38 @@ def create_app(settings: Optional[Settings] = None, provider: Optional[WeatherPr
         """Evaluate every active contract. Normally run by the scheduler (scripts/run_daily.py)."""
         return run_all_active(store, provider, check_as_of(as_of))
 
+    # -- public demo --------------------------------------------------------
+
+    @app.get("/v1/demo", tags=["demo"], dependencies=[Depends(require_demo)])
+    def get_demo(request: Request):
+        """What the public demo contains. 404 when demo mode is off."""
+        return demo_info(settings, request.app.state.provider.name, request.app.state.demo)
+
+    @app.post("/v1/demo/session", tags=["demo"], dependencies=[Depends(require_demo)])
+    def demo_session(request: Request):
+        """API key for the shared demo account. No sign-up needed. 404 when demo mode is off."""
+        return {"api_key": demo_api_key(settings), **demo_info(settings, request.app.state.provider.name, request.app.state.demo)}
+
+    @app.post("/v1/demo/reset", tags=["demo"], dependencies=[Depends(require_demo)])
+    def demo_reset(request: Request, client: dict = Depends(client_auth), store: Store = Depends(get_store)):
+        """Wipe the demo account and re-seed fresh, unsettled policies. Demo account only."""
+        if not is_demo_client(settings, client):
+            raise HTTPException(403, "only the demo account can be reset")
+        request.app.state.demo = reset_demo(store, settings)
+        return demo_info(settings, request.app.state.provider.name, request.app.state.demo)
+
     # -- account ------------------------------------------------------------
 
     @app.get("/v1/me", tags=["account"])
     def me(client: dict = Depends(client_auth)):
-        return {k: client[k] for k in ("id", "name", "webhook_url", "auto_approve", "created_at")}
+        return {**{k: client[k] for k in ("id", "name", "webhook_url", "auto_approve", "created_at")}, "demo": is_demo_client(settings, client)}
 
     @app.patch("/v1/me", tags=["account"])
     def update_me(body: ClientUpdate, client: dict = Depends(client_auth), store: Store = Depends(get_store)):
         fields = {}
+        # A public demo must never make the server call a URL a stranger typed in.
+        if is_demo_client(settings, client) and body.webhook_url is not None:
+            raise HTTPException(403, "webhooks are turned off on the public demo")
         if "webhook_url" in body.model_fields_set:
             fields["webhook_url"] = str(body.webhook_url) if body.webhook_url else None
         if body.auto_approve is not None:
@@ -287,6 +343,16 @@ def create_app(settings: Optional[Settings] = None, provider: Optional[WeatherPr
             except HTTPException as exc:
                 errors.append({"row": i, "error": exc.detail})
         return {"created": len(created), "contract_ids": created, "errors": errors}
+
+    @app.post("/v1/contracts/evaluate-all", tags=["contracts"])
+    def evaluate_all(
+        as_of: Optional[date] = None,
+        client: dict = Depends(client_auth),
+        store: Store = Depends(get_store),
+        provider: WeatherProvider = Depends(get_prov),
+    ):
+        """Evaluate all of your active policies now (the same run the daily job does), and raise any payouts due."""
+        return run_all_active(store, provider, check_as_of(as_of), client_id=client["id"])
 
     @app.get("/v1/contracts", tags=["contracts"])
     def get_contracts(

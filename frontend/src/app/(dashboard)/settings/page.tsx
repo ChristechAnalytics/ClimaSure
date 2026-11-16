@@ -44,8 +44,22 @@ export default function SettingsPage() {
           <form onSubmit={save}>
             <CardHead title="Notifications and approvals" sub="ClimaSure sends a signed message to your system whenever a payout is raised." />
             <div className="flex flex-col gap-4">
-              <Field label="Webhook URL" hint="Leave empty to just use this dashboard. See the API reference for how to verify signatures.">
-                <input className="input" type="url" placeholder="https://your-system.example/climasure-webhook" value={webhook} onChange={(e) => setWebhook(e.target.value)} />
+              <Field
+                label="Webhook URL"
+                hint={
+                  me.demo
+                    ? "Turned off on the public demo. Notifications are still recorded below, marked Not sent."
+                    : "Leave empty to just use this dashboard. See the API reference for how to verify signatures."
+                }
+              >
+                <input
+                  className="input"
+                  type="url"
+                  placeholder="https://your-system.example/climasure-webhook"
+                  value={webhook}
+                  disabled={me.demo}
+                  onChange={(e) => setWebhook(e.target.value)}
+                />
               </Field>
               <label className="flex items-center gap-2 font-medium">
                 <input type="checkbox" className="size-4 accent-accent" checked={autoApprove} onChange={(e) => setAutoApprove(e.target.checked)} />

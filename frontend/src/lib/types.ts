@@ -98,6 +98,27 @@ export interface Me {
   webhook_url: string | null;
   auto_approve: number | boolean;
   created_at: string;
+  /** True for the shared public demo account. */
+  demo?: boolean;
+}
+
+export interface DemoInfo {
+  name: string;
+  season_year: number;
+  policies: number;
+  products: Record<string, string>;
+  provider: string;
+  resets_every_hours: number | null;
+  last_reset_at: string;
+}
+
+export interface BatchSummary {
+  as_of: string;
+  evaluated: number;
+  skipped: number;
+  payouts_raised: number;
+  payout_total: number;
+  errors: { contract_id: string; error: string }[];
 }
 
 export interface Summary {

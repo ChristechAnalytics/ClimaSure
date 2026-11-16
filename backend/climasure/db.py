@@ -107,9 +107,17 @@ class Store:
 
     # -- clients ------------------------------------------------------------
 
-    def create_client(self, name: str, webhook_url: Optional[str], auto_approve: bool) -> dict:
-        client_id = new_id("cli")
-        api_key = "cs_live_" + secrets.token_urlsafe(32)
+    def create_client(
+        self,
+        name: str,
+        webhook_url: Optional[str],
+        auto_approve: bool,
+        client_id: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ) -> dict:
+        """New client account. `client_id` and `api_key` are only fixed for the public demo account."""
+        client_id = client_id or new_id("cli")
+        api_key = api_key or "cs_live_" + secrets.token_urlsafe(32)
         webhook_secret = "whsec_" + secrets.token_urlsafe(24)
         self._exec(
             "INSERT INTO clients VALUES (?,?,?,?,?,?,?)",
@@ -129,6 +137,18 @@ class Store:
         allowed = {k: v for k, v in fields.items() if k in {"webhook_url", "auto_approve"}}
         for k, v in allowed.items():
             self._exec(f"UPDATE clients SET {k} = ? WHERE id = ?", (v, client_id))
+
+    def delete_client(self, client_id: str) -> None:
+        """Remove a client and everything it owns, in one transaction."""
+        with self.lock:
+            with self.conn:  # commits, or rolls back on error
+                for table in ("webhook_deliveries", "payouts", "evaluations", "contracts"):
+                    self.conn.execute(f"DELETE FROM {table} WHERE client_id = ?", (client_id,))
+                self.conn.execute("DELETE FROM clients WHERE id = ?", (client_id,))
+
+    def count_contracts(self, client_id: str) -> int:
+        row = self._one("SELECT COUNT(*) AS n FROM contracts WHERE client_id = ?", (client_id,))
+        return int(row["n"])
 
     def list_clients(self) -> list[dict]:
         rows = self._all(

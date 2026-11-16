@@ -13,4 +13,5 @@ USER climasure
 ENV CLIMASURE_DB_PATH=/data/climasure.db
 
 EXPOSE 8000
-CMD ["uvicorn", "climasure.api:app", "--host", "0.0.0.0", "--port", "8000"]
+# Hosts like Render pass the port in $PORT; locally and in docker-compose it defaults to 8000.
+CMD ["sh", "-c", "exec uvicorn climasure.api:app --host 0.0.0.0 --port ${PORT:-8000}"]
