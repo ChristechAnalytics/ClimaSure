@@ -1,3 +1,4 @@
+[![CI](https://github.com/ChristechAnalytics/ClimaSure/actions/workflows/ci.yml/badge.svg)](https://github.com/ChristechAnalytics/ClimaSure/actions/workflows/ci.yml)
 # ClimaSure: Hyperlocal Weather Insurance Triggers
 
 ClimaSure sells rainfall and heat data to insurers and microfinance banks, so they
